@@ -1,23 +1,156 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="de">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Knight Roguelike</title>
   <style>
-    body { margin: 0; background: #111; }
-    canvas { display: block; margin: auto; background: #222; }
+    html, body { height:100%; margin:0; background:#0b0b10; }
+    canvas { display:block; margin:auto; background:#141424; touch-action:none; }
+
+    /* simple on-screen joystick */
+    .hud {
+      position: fixed; inset: 0; pointer-events: none;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      color: rgba(255,255,255,.85);
+    }
+    .tip { position: fixed; top: 12px; left: 12px; font-size: 13px; opacity:.8; }
+    .joy {
+      position: fixed; left: 18px; bottom: 18px;
+      width: 140px; height: 140px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+      pointer-events: auto;
+    }
+    .knob {
+      position:absolute; left:50%; top:50%;
+      width: 56px; height: 56px;
+      margin-left:-28px; margin-top:-28px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.14);
+      border: 1px solid rgba(255,255,255,.18);
+      transform: translate(0,0);
+    }
   </style>
 </head>
 <body>
-  <canvas id="game" width="800" height="500"></canvas>
+  <canvas id="game" width="960" height="540"></canvas>
+
+  <div class="hud">
+    <div class="tip">WASD / Pfeile: bewegen • Handy: Joystick links</div>
+    <div class="joy" id="joy"><div class="knob" id="knob"></div></div>
+  </div>
 
   <script>
     const canvas = document.getElementById("game");
     const ctx = canvas.getContext("2d");
 
-    ctx.fillStyle = "white";
-    ctx.font = "24px sans-serif";
-    ctx.fillText("Knight Roguelike – Prototype", 200, 250);
+    const VIEW = { w: canvas.width, h: canvas.height };
+    const player = { x: VIEW.w/2, y: VIEW.h/2, r: 16, speed: 240 };
+
+    // Keyboard input
+    const key = { left:false, right:false, up:false, down:false };
+    window.addEventListener("keydown", (e) => {
+      const k = e.key.toLowerCase();
+      if (k === "a" || k === "arrowleft") key.left = true;
+      if (k === "d" || k === "arrowright") key.right = true;
+      if (k === "w" || k === "arrowup") key.up = true;
+      if (k === "s" || k === "arrowdown") key.down = true;
+    });
+    window.addEventListener("keyup", (e) => {
+      const k = e.key.toLowerCase();
+      if (k === "a" || k === "arrowleft") key.left = false;
+      if (k === "d" || k === "arrowright") key.right = false;
+      if (k === "w" || k === "arrowup") key.up = false;
+      if (k === "s" || k === "arrowdown") key.down = false;
+    });
+
+    // Touch joystick
+    const joy = document.getElementById("joy");
+    const knob = document.getElementById("knob");
+    let joyActive = false;
+    let joyCenter = { x: 0, y: 0 };
+    let joyVec = { x: 0, y: 0 }; // -1..1
+    const JOY_RADIUS = 52;
+
+    function setKnob(dx, dy) {
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    }
+
+    function startJoy(ev) {
+      joyActive = true;
+      const r = joy.getBoundingClientRect();
+      joyCenter.x = r.left + r.width/2;
+      joyCenter.y = r.top + r.height/2;
+      moveJoy(ev);
+    }
+    function endJoy() {
+      joyActive = false;
+      joyVec.x = 0; joyVec.y = 0;
+      setKnob(0,0);
+    }
+    function moveJoy(ev) {
+      if (!joyActive) return;
+      const t = ev.touches ? ev.touches[0] : ev;
+      let dx = t.clientX - joyCenter.x;
+      let dy = t.clientY - joyCenter.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const clamped = Math.min(JOY_RADIUS, len);
+      dx = dx / len * clamped;
+      dy = dy / len * clamped;
+      setKnob(dx, dy);
+      joyVec.x = dx / JOY_RADIUS;
+      joyVec.y = dy / JOY_RADIUS;
+    }
+
+    joy.addEventListener("pointerdown", (e) => { e.preventDefault(); startJoy(e); });
+    window.addEventListener("pointermove", (e) => { if (joyActive) moveJoy(e); });
+    window.addEventListener("pointerup", endJoy);
+    window.addEventListener("pointercancel", endJoy);
+
+    // Game loop
+    let last = performance.now();
+    function loop(now) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+
+      // combine keyboard + joystick
+      let ix = (key.right ? 1 : 0) - (key.left ? 1 : 0) + joyVec.x;
+      let iy = (key.down ? 1 : 0) - (key.up ? 1 : 0) + joyVec.y;
+
+      const len = Math.hypot(ix, iy);
+      if (len > 1) { ix /= len; iy /= len; }
+
+      player.x += ix * player.speed * dt;
+      player.y += iy * player.speed * dt;
+
+      // clamp
+      player.x = Math.max(player.r, Math.min(VIEW.w - player.r, player.x));
+      player.y = Math.max(player.r, Math.min(VIEW.h - player.r, player.y));
+
+      // render
+      ctx.clearRect(0,0,VIEW.w,VIEW.h);
+      ctx.fillStyle = "#141424";
+      ctx.fillRect(0,0,VIEW.w,VIEW.h);
+
+      // player (knight placeholder)
+      ctx.fillStyle = "#ffd1dc";
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
+      ctx.fill();
+
+      // small "sword" direction hint
+      ctx.strokeStyle = "rgba(255,255,255,.75)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(player.x, player.y);
+      ctx.lineTo(player.x + ix*24, player.y + iy*24);
+      ctx.stroke();
+
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
   </script>
 </body>
 </html>
