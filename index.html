@@ -38,7 +38,7 @@
   <canvas id="game" width="960" height="540"></canvas>
 
   <div class="hud">
-    <div class="tip">WASD/ZQSD/IJKL/Pfeile: bewegen (auch diagonal) • Leertaste/Klick: Angriff • Handy: Joystick links</div>
+    <div class="tip">WASD/ZQSD/IJKL/Pfeile: bewegen (auch diagonal) • Leertaste/Klick: Angriff • Shift/Rechtsklick: Dash (I-Frames) • Handy: Joystick links</div>
     <div class="joy" id="joy"><div class="knob" id="knob"></div></div>
   </div>
 
@@ -55,13 +55,24 @@
       facingX: 1,
       facingY: 0,
       attackTimer: 0,
-      attackCooldown: 0
+      attackCooldown: 0,
+      dashTimer: 0,
+      dashCooldown: 0,
+      iframeTimer: 0,
+      dashDirX: 1,
+      dashDirY: 0,
+      trail: []
     };
 
     const ATTACK_DURATION = 0.15;
     const ATTACK_COOLDOWN = 0.25;
     const ATTACK_RANGE = 74;
     const ATTACK_ANGLE = Math.PI * 0.8; // 144° cone
+    const DASH_DURATION = 0.14;
+    const DASH_COOLDOWN = 0.85;
+    const DASH_SPEED = 760;
+    const IFRAME_DURATION = 0.22;
+    const MAX_TRAIL_POINTS = 8;
 
     const STATIC_TARGET_LAYOUT = [
       [120, 110], [300, 110], [500, 110], [700, 110], [860, 110],
@@ -130,13 +141,33 @@
       }
     }
 
+    function tryDash() {
+      if (player.dashCooldown > 0 || player.dashTimer > 0) return;
+
+      const dirLen = Math.hypot(player.facingX, player.facingY) || 1;
+      player.dashDirX = player.facingX / dirLen;
+      player.dashDirY = player.facingY / dirLen;
+      player.dashTimer = DASH_DURATION;
+      player.dashCooldown = DASH_COOLDOWN;
+      player.iframeTimer = IFRAME_DURATION;
+      player.trail.length = 0;
+    }
+
     window.addEventListener("keydown", (e) => {
       if (e.code === "Space") {
         e.preventDefault();
         tryAttack();
       }
+      if (e.code === "ShiftLeft" || e.code === "ShiftRight") {
+        e.preventDefault();
+        tryDash();
+      }
     });
     canvas.addEventListener("pointerdown", () => tryAttack());
+    canvas.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      tryDash();
+    });
 
     // Touch joystick
     const joy = document.getElementById("joy");
@@ -201,9 +232,25 @@
 
       player.attackTimer = Math.max(0, player.attackTimer - dt);
       player.attackCooldown = Math.max(0, player.attackCooldown - dt);
+      player.dashTimer = Math.max(0, player.dashTimer - dt);
+      player.dashCooldown = Math.max(0, player.dashCooldown - dt);
+      player.iframeTimer = Math.max(0, player.iframeTimer - dt);
 
-      player.x += ix * player.speed * dt;
-      player.y += iy * player.speed * dt;
+      if (player.dashTimer > 0) {
+        player.trail.push({ x: player.x, y: player.y, life: 0.22 });
+        if (player.trail.length > MAX_TRAIL_POINTS) player.trail.shift();
+
+        player.x += player.dashDirX * DASH_SPEED * dt;
+        player.y += player.dashDirY * DASH_SPEED * dt;
+      } else {
+        player.x += ix * player.speed * dt;
+        player.y += iy * player.speed * dt;
+      }
+
+      for (let i = player.trail.length - 1; i >= 0; i -= 1) {
+        player.trail[i].life -= dt;
+        if (player.trail[i].life <= 0) player.trail.splice(i, 1);
+      }
 
       // clamp
       player.x = Math.max(player.r, Math.min(VIEW.w - player.r, player.x));
@@ -230,10 +277,29 @@
       }
 
       // player (knight placeholder)
-      ctx.fillStyle = "#ffd1dc";
+      const invulnerable = player.iframeTimer > 0;
+      ctx.fillStyle = invulnerable ? "#ffe59f" : "#ffd1dc";
+
+      for (const ghost of player.trail) {
+        const alpha = Math.max(0, ghost.life / 0.22) * 0.4;
+        ctx.fillStyle = `rgba(255, 245, 185, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(ghost.x, ghost.y, player.r * 0.95, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       ctx.beginPath();
       ctx.arc(player.x, player.y, player.r, 0, Math.PI*2);
       ctx.fill();
+
+      if (invulnerable) {
+        const pulse = 1 + Math.sin(now * 0.03) * 0.15;
+        ctx.strokeStyle = "rgba(255, 235, 140, 0.9)";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, (player.r + 7) * pulse, 0, Math.PI * 2);
+        ctx.stroke();
+      }
 
       // small "sword" direction hint
       ctx.strokeStyle = "rgba(255,255,255,.75)";
