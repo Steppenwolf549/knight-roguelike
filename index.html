@@ -78,6 +78,12 @@
     const ENEMY_SPAWN_INTERVAL = 3;
     const ENEMY_RADIUS = 14;
     const ENEMY_SPEED = player.speed * 0.5;
+    const ATTACKER_SPEED = player.speed * 0.42;
+    const ATTACKER_WINDUP = 0.75;
+    const ATTACKER_STRIKE = 0.2;
+    const ATTACKER_COOLDOWN = 1.15;
+    const ATTACKER_RANGE = 140;
+    const ATTACKER_STRIKE_SPEED = 430;
     const enemies = [];
     let enemySpawnTimer = ENEMY_SPAWN_DELAY;
 
@@ -135,10 +141,16 @@
 
     function spawnEnemy() {
       const padding = ENEMY_RADIUS + 8;
+      const type = Math.random() < 0.5 ? "flee" : "attacker";
       enemies.push({
         x: padding + Math.random() * (VIEW.w - padding * 2),
         y: padding + Math.random() * (VIEW.h - padding * 2),
-        r: ENEMY_RADIUS
+        r: ENEMY_RADIUS,
+        type,
+        state: type === "attacker" ? "chase" : "flee",
+        stateTimer: 0,
+        attackDirX: 0,
+        attackDirY: 0
       });
     }
 
@@ -264,11 +276,53 @@
       player.y = Math.max(player.r, Math.min(VIEW.h - player.r, player.y));
 
       for (const enemy of enemies) {
-        const awayX = enemy.x - player.x;
-        const awayY = enemy.y - player.y;
-        const awayLen = Math.hypot(awayX, awayY) || 1;
-        enemy.x += (awayX / awayLen) * ENEMY_SPEED * dt;
-        enemy.y += (awayY / awayLen) * ENEMY_SPEED * dt;
+        if (enemy.type === "flee") {
+          const awayX = enemy.x - player.x;
+          const awayY = enemy.y - player.y;
+          const awayLen = Math.hypot(awayX, awayY) || 1;
+          enemy.x += (awayX / awayLen) * ENEMY_SPEED * dt;
+          enemy.y += (awayY / awayLen) * ENEMY_SPEED * dt;
+        } else {
+          enemy.stateTimer = Math.max(0, enemy.stateTimer - dt);
+
+          const toPlayerX = player.x - enemy.x;
+          const toPlayerY = player.y - enemy.y;
+          const toPlayerLen = Math.hypot(toPlayerX, toPlayerY) || 1;
+
+          if (enemy.state === "chase") {
+            enemy.x += (toPlayerX / toPlayerLen) * ATTACKER_SPEED * dt;
+            enemy.y += (toPlayerY / toPlayerLen) * ATTACKER_SPEED * dt;
+
+            if (toPlayerLen <= ATTACKER_RANGE) {
+              enemy.state = "windup";
+              enemy.stateTimer = ATTACKER_WINDUP;
+            }
+          } else if (enemy.state === "windup") {
+            if (enemy.stateTimer <= 0) {
+              enemy.attackDirX = toPlayerX / toPlayerLen;
+              enemy.attackDirY = toPlayerY / toPlayerLen;
+              enemy.state = "strike";
+              enemy.stateTimer = ATTACKER_STRIKE;
+            }
+          } else if (enemy.state === "strike") {
+            enemy.x += enemy.attackDirX * ATTACKER_STRIKE_SPEED * dt;
+            enemy.y += enemy.attackDirY * ATTACKER_STRIKE_SPEED * dt;
+
+            const hitDist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+            if (hitDist < enemy.r + player.r && player.iframeTimer <= 0) {
+              player.iframeTimer = IFRAME_DURATION;
+              player.x += enemy.attackDirX * 32;
+              player.y += enemy.attackDirY * 32;
+            }
+
+            if (enemy.stateTimer <= 0) {
+              enemy.state = "cooldown";
+              enemy.stateTimer = ATTACKER_COOLDOWN;
+            }
+          } else if (enemy.stateTimer <= 0) {
+            enemy.state = "chase";
+          }
+        }
 
         enemy.x = Math.max(enemy.r, Math.min(VIEW.w - enemy.r, enemy.x));
         enemy.y = Math.max(enemy.r, Math.min(VIEW.h - enemy.r, enemy.y));
@@ -281,16 +335,39 @@
 
       // enemies
       for (const enemy of enemies) {
-        ctx.fillStyle = "#ff8da1";
+        let fill = "#ff8da1";
+        let stroke = "rgba(255,180,195,.7)";
+
+        if (enemy.type === "attacker") {
+          fill = "#86d3ff";
+          stroke = "rgba(145,220,255,.7)";
+
+          if (enemy.state === "windup") {
+            const blinkOn = Math.floor(enemy.stateTimer * 14) % 2 === 0;
+            fill = blinkOn ? "#ffd08c" : "#ff6f6f";
+            stroke = "rgba(255,120,120,.95)";
+          }
+        }
+
+        ctx.fillStyle = fill;
         ctx.beginPath();
         ctx.arc(enemy.x, enemy.y, enemy.r, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = "rgba(255,180,195,.7)";
+        ctx.strokeStyle = stroke;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.arc(enemy.x, enemy.y, enemy.r + 3, 0, Math.PI * 2);
         ctx.stroke();
+
+        if (enemy.type === "attacker" && enemy.state === "windup") {
+          const charge = 1 - enemy.stateTimer / ATTACKER_WINDUP;
+          ctx.strokeStyle = "rgba(255, 120, 120, 0.8)";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(enemy.x, enemy.y, enemy.r + 8 + charge * 10, 0, Math.PI * 2);
+          ctx.stroke();
+        }
       }
 
       // player (knight placeholder)
