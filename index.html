@@ -51,6 +51,8 @@
       x: VIEW.w/2,
       y: VIEW.h/2,
       r: 16,
+      hp: 3,
+      maxHp: 3,
       speed: 240,
       facingX: 1,
       facingY: 0,
@@ -86,6 +88,7 @@
     const ATTACKER_STRIKE_SPEED = 430;
     const enemies = [];
     let enemySpawnTimer = ENEMY_SPAWN_DELAY;
+    let gameOver = false;
 
     // Keyboard input (QWERTY + AZERTY + IJKL + arrow keys)
     const key = { left:false, right:false, up:false, down:false };
@@ -96,6 +99,11 @@
 
     window.addEventListener("keydown", (e) => {
       const k = e.key.toLowerCase();
+
+      if (gameOver && k === "r") {
+        window.location.reload();
+      }
+
       if (isLeftKey(k)) key.left = true;
       if (isRightKey(k)) key.right = true;
       if (isUpKey(k)) key.up = true;
@@ -110,7 +118,7 @@
     });
 
     function tryAttack() {
-      if (player.attackCooldown > 0) return;
+      if (gameOver || player.attackCooldown > 0) return;
 
       player.attackCooldown = ATTACK_COOLDOWN;
       player.attackTimer = ATTACK_DURATION;
@@ -155,7 +163,7 @@
     }
 
     function tryDash() {
-      if (player.dashCooldown > 0 || player.dashTimer > 0) return;
+      if (gameOver || player.dashCooldown > 0 || player.dashTimer > 0) return;
 
       const dirLen = Math.hypot(player.facingX, player.facingY) || 1;
       player.dashDirX = player.facingX / dirLen;
@@ -238,7 +246,7 @@
       const len = Math.hypot(ix, iy);
       if (len > 1) { ix /= len; iy /= len; }
 
-      if (len > 0.01) {
+      if (!gameOver && len > 0.01) {
         player.facingX = ix;
         player.facingY = iy;
       }
@@ -249,21 +257,25 @@
       player.dashCooldown = Math.max(0, player.dashCooldown - dt);
       player.iframeTimer = Math.max(0, player.iframeTimer - dt);
 
-      enemySpawnTimer -= dt;
-      while (enemySpawnTimer <= 0) {
-        spawnEnemy();
-        enemySpawnTimer += ENEMY_SPAWN_INTERVAL;
+      if (!gameOver) {
+        enemySpawnTimer -= dt;
+        while (enemySpawnTimer <= 0) {
+          spawnEnemy();
+          enemySpawnTimer += ENEMY_SPAWN_INTERVAL;
+        }
       }
 
-      if (player.dashTimer > 0) {
-        player.trail.push({ x: player.x, y: player.y, life: 0.22 });
-        if (player.trail.length > MAX_TRAIL_POINTS) player.trail.shift();
+      if (!gameOver) {
+        if (player.dashTimer > 0) {
+          player.trail.push({ x: player.x, y: player.y, life: 0.22 });
+          if (player.trail.length > MAX_TRAIL_POINTS) player.trail.shift();
 
-        player.x += player.dashDirX * DASH_SPEED * dt;
-        player.y += player.dashDirY * DASH_SPEED * dt;
-      } else {
-        player.x += ix * player.speed * dt;
-        player.y += iy * player.speed * dt;
+          player.x += player.dashDirX * DASH_SPEED * dt;
+          player.y += player.dashDirY * DASH_SPEED * dt;
+        } else {
+          player.x += ix * player.speed * dt;
+          player.y += iy * player.speed * dt;
+        }
       }
 
       for (let i = player.trail.length - 1; i >= 0; i -= 1) {
@@ -276,6 +288,8 @@
       player.y = Math.max(player.r, Math.min(VIEW.h - player.r, player.y));
 
       for (const enemy of enemies) {
+        if (gameOver) continue;
+
         if (enemy.type === "flee") {
           const awayX = enemy.x - player.x;
           const awayY = enemy.y - player.y;
@@ -310,9 +324,14 @@
 
             const hitDist = Math.hypot(enemy.x - player.x, enemy.y - player.y);
             if (hitDist < enemy.r + player.r && player.iframeTimer <= 0) {
+              player.hp = Math.max(0, player.hp - 1);
               player.iframeTimer = IFRAME_DURATION;
               player.x += enemy.attackDirX * 32;
               player.y += enemy.attackDirY * 32;
+
+              if (player.hp <= 0) {
+                gameOver = true;
+              }
             }
 
             if (enemy.stateTimer <= 0) {
@@ -416,6 +435,38 @@
         ctx.beginPath();
         ctx.arc(player.x, player.y, ATTACK_RANGE, sweepStart, sweepEnd);
         ctx.stroke();
+      }
+
+      // HP visualization
+      const heartSpacing = 28;
+      const heartStartX = 28;
+      const heartY = 30;
+      for (let i = 0; i < player.maxHp; i += 1) {
+        const filled = i < player.hp;
+        const hx = heartStartX + i * heartSpacing;
+        const size = 8;
+
+        ctx.save();
+        ctx.translate(hx, heartY);
+        ctx.fillStyle = filled ? "#ff5d8f" : "rgba(255,255,255,0.18)";
+        ctx.beginPath();
+        ctx.moveTo(0, size * 0.7);
+        ctx.bezierCurveTo(-size, -size * 0.15, -size * 0.95, -size * 1.2, 0, -size * 0.45);
+        ctx.bezierCurveTo(size * 0.95, -size * 1.2, size, -size * 0.15, 0, size * 0.7);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (gameOver) {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.fillRect(0, 0, VIEW.w, VIEW.h);
+        ctx.fillStyle = "#ffe3ea";
+        ctx.font = "bold 54px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Game Over", VIEW.w / 2, VIEW.h / 2 - 12);
+        ctx.font = "24px system-ui, sans-serif";
+        ctx.fillStyle = "rgba(255, 230, 236, 0.9)";
+        ctx.fillText("Drücke R zum Neustart", VIEW.w / 2, VIEW.h / 2 + 32);
       }
 
       requestAnimationFrame(loop);
