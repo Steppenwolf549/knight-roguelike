@@ -74,19 +74,12 @@
     const IFRAME_DURATION = 0.22;
     const MAX_TRAIL_POINTS = 8;
 
-    const STATIC_TARGET_LAYOUT = [
-      [120, 110], [300, 110], [500, 110], [700, 110], [860, 110],
-      [120, 250], [300, 250], [500, 250], [700, 250], [860, 250],
-      [120, 410], [300, 410], [500, 410], [700, 410], [860, 410]
-    ];
-
-    const targets = STATIC_TARGET_LAYOUT.map(([x, y]) => ({
-      x,
-      y,
-      r: 13,
-      hp: 1,
-      alive: true
-    }));
+    const ENEMY_SPAWN_DELAY = 1;
+    const ENEMY_SPAWN_INTERVAL = 3;
+    const ENEMY_RADIUS = 14;
+    const ENEMY_SPEED = player.speed * 0.5;
+    const enemies = [];
+    let enemySpawnTimer = ENEMY_SPAWN_DELAY;
 
     // Keyboard input (QWERTY + AZERTY + IJKL + arrow keys)
     const key = { left:false, right:false, up:false, down:false };
@@ -121,24 +114,32 @@
       const fy = player.facingY / dirLen;
       const maxDist = ATTACK_RANGE + 16;
 
-      for (const target of targets) {
-        if (!target.alive) continue;
+      for (let i = enemies.length - 1; i >= 0; i -= 1) {
+        const enemy = enemies[i];
 
-        const dx = target.x - player.x;
-        const dy = target.y - player.y;
+        const dx = enemy.x - player.x;
+        const dy = enemy.y - player.y;
         const dist = Math.hypot(dx, dy);
-        if (dist > maxDist + target.r || dist < 1) continue;
+        if (dist > maxDist + enemy.r || dist < 1) continue;
 
         const nx = dx / dist;
         const ny = dy / dist;
         const dot = nx * fx + ny * fy;
         const angleToTarget = Math.acos(Math.max(-1, Math.min(1, dot)));
 
-        if (angleToTarget <= ATTACK_ANGLE * 0.5 && dist <= ATTACK_RANGE + target.r) {
-          target.hp -= 1;
-          if (target.hp <= 0) target.alive = false;
+        if (angleToTarget <= ATTACK_ANGLE * 0.5 && dist <= ATTACK_RANGE + enemy.r) {
+          enemies.splice(i, 1);
         }
       }
+    }
+
+    function spawnEnemy() {
+      const padding = ENEMY_RADIUS + 8;
+      enemies.push({
+        x: padding + Math.random() * (VIEW.w - padding * 2),
+        y: padding + Math.random() * (VIEW.h - padding * 2),
+        r: ENEMY_RADIUS
+      });
     }
 
     function tryDash() {
@@ -236,6 +237,12 @@
       player.dashCooldown = Math.max(0, player.dashCooldown - dt);
       player.iframeTimer = Math.max(0, player.iframeTimer - dt);
 
+      enemySpawnTimer -= dt;
+      while (enemySpawnTimer <= 0) {
+        spawnEnemy();
+        enemySpawnTimer += ENEMY_SPAWN_INTERVAL;
+      }
+
       if (player.dashTimer > 0) {
         player.trail.push({ x: player.x, y: player.y, life: 0.22 });
         if (player.trail.length > MAX_TRAIL_POINTS) player.trail.shift();
@@ -256,23 +263,33 @@
       player.x = Math.max(player.r, Math.min(VIEW.w - player.r, player.x));
       player.y = Math.max(player.r, Math.min(VIEW.h - player.r, player.y));
 
+      for (const enemy of enemies) {
+        const awayX = enemy.x - player.x;
+        const awayY = enemy.y - player.y;
+        const awayLen = Math.hypot(awayX, awayY) || 1;
+        enemy.x += (awayX / awayLen) * ENEMY_SPEED * dt;
+        enemy.y += (awayY / awayLen) * ENEMY_SPEED * dt;
+
+        enemy.x = Math.max(enemy.r, Math.min(VIEW.w - enemy.r, enemy.x));
+        enemy.y = Math.max(enemy.r, Math.min(VIEW.h - enemy.r, enemy.y));
+      }
+
       // render
       ctx.clearRect(0,0,VIEW.w,VIEW.h);
       ctx.fillStyle = "#141424";
       ctx.fillRect(0,0,VIEW.w,VIEW.h);
 
-      // static targets (die in one hit)
-      for (const target of targets) {
-        if (!target.alive) continue;
-        ctx.fillStyle = "#7ed0ff";
+      // enemies
+      for (const enemy of enemies) {
+        ctx.fillStyle = "#ff8da1";
         ctx.beginPath();
-        ctx.arc(target.x, target.y, target.r, 0, Math.PI * 2);
+        ctx.arc(enemy.x, enemy.y, enemy.r, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = "rgba(255,255,255,.35)";
+        ctx.strokeStyle = "rgba(255,180,195,.7)";
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(target.x, target.y, target.r + 3, 0, Math.PI * 2);
+        ctx.arc(enemy.x, enemy.y, enemy.r + 3, 0, Math.PI * 2);
         ctx.stroke();
       }
 
